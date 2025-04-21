@@ -1,18 +1,14 @@
 import os
+from typing import Dict, List, Tuple
+
 import numpy as np
 import torch
 import torchvision
-import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
-import matplotlib.pyplot as plt
-import protector as protect
-from temperature_scaling import ModelWithTemperature
-from utils.cli_utils import softmax_ent
-from tent import Tent, configure_model, collect_params
-from typing import Sequence, Tuple, Dict, Optional
-import argparse
 
-from typing import List, Dict
+from temperature_scaling import ModelWithTemperature
+from tent import Tent, collect_params, configure_model
+from utils.cli_utils import softmax_ent
 
 
 class BasicDataset(Dataset):
@@ -20,7 +16,8 @@ class BasicDataset(Dataset):
         self.x, self.y = x, y
         self.transform = transform
 
-    def __len__(self): return len(self.x)
+    def __len__(self):
+        return len(self.x)
 
     def __getitem__(self, idx):
         img = self.x[idx]
@@ -28,7 +25,10 @@ class BasicDataset(Dataset):
             img = self.transform(img)
         return img, self.y[idx]
 
-def load_cifar10c(n_examples: int, severity: int, corruption: str, data_dir: str = './data/CIFAR-10-C') -> Tuple[torch.Tensor, torch.Tensor]:
+
+def load_cifar10c(
+    n_examples: int, severity: int, corruption: str, data_dir: str = "./data/CIFAR-10-C"
+) -> Tuple[torch.Tensor, torch.Tensor]:
     base_dir = os.path.abspath(data_dir)
     x = np.load(os.path.join(base_dir, f"{corruption}.npy"))
     y = np.load(os.path.join(base_dir, "labels.npy"))
@@ -41,16 +41,18 @@ def load_cifar10c(n_examples: int, severity: int, corruption: str, data_dir: str
     x = np.transpose(x, (0, 3, 1, 2)).astype(np.float32) / 255.0
     return torch.tensor(x), torch.tensor(y)
 
+
 def get_model(method: str, device: str):
     model = torch.hub.load("chenyaofo/pytorch-cifar-models", "cifar10_resnet32", pretrained=True)
     model = ModelWithTemperature(model, 1.8).to(device)
 
-    if method == 'tent':
+    if method == "tent":
         model = configure_model(model)
         params, _ = collect_params(model)
         optimizer = torch.optim.SGD(params, lr=1e-3, momentum=0.9)
         model = Tent(model, optimizer)
     return model.eval()
+
 
 def evaluate(model, dataloader, device):
     """Evaluate entropy values, accuracy, logits and labels."""
@@ -69,6 +71,7 @@ def evaluate(model, dataloader, device):
     accuracy = correct / total
     return np.array(entropies), accuracy, logits_list, labels_list
 
+
 def run_martingale(entropy_streams: Dict[str, np.ndarray], protector) -> Dict[str, Dict[str, list]]:
     results = {}
     for name, z_seq in entropy_streams.items():
@@ -77,11 +80,12 @@ def run_martingale(entropy_streams: Dict[str, np.ndarray], protector) -> Dict[st
         for z in z_seq:
             u = protector.cdf(z)
             protector.protect_u(u)
-            #logs.append(protector.martingales[-1] + 1e-8)
+            # logs.append(protector.martingales[-1] + 1e-8)
             logs.append(np.log(protector.martingales[-1] + 1e-8))
             eps.append(protector.epsilons[-1])
-        results[name] = {'log_sj': logs, 'eps': eps}
+        results[name] = {"log_sj": logs, "eps": eps}
     return results
+
 
 def compute_accuracy_over_time_from_logits(logits_list, labels_list):
     accs = []
@@ -95,13 +99,14 @@ def compute_accuracy_over_time_from_logits(logits_list, labels_list):
 def compute_detection_delays(results_dict, threshold=np.log(100)):
     delays = {}
     for name, data in results_dict.items():
-        log_sj = np.array(data['log_sj'])
+        log_sj = np.array(data["log_sj"])
         above_thresh = np.where(log_sj > threshold)[0]
         if len(above_thresh) > 0:
             delays[name] = int(above_thresh[0])
         else:
             delays[name] = len(log_sj)
     return delays
+
 
 def collect_method_comparison_results(method_names, raw_logs):
     """
@@ -112,20 +117,21 @@ def collect_method_comparison_results(method_names, raw_logs):
     for method in method_names:
         method_data = raw_logs.get(method, {})
         results[method] = {
-            'log_sj': method_data.get('log_sj', []),
-            'eps': method_data.get('eps', []),
-            'ents': method_data.get('ents', []),
-            'accs': method_data.get('accs1', []),
+            "log_sj": method_data.get("log_sj", []),
+            "eps": method_data.get("eps", []),
+            "ents": method_data.get("ents", []),
+            "accs": method_data.get("accs1", []),
         }
     return results
+
 
 def load_clean_then_corrupt_sequence(
     corruption: str,
     severity: int,
     n_examples: int = 1000,
-    data_dir: str = './data',
+    data_dir: str = "./data",
     transform=None,
-    batch_size: int = 64
+    batch_size: int = 64,
 ) -> Tuple[DataLoader, np.ndarray, np.ndarray]:
     """
     Create a DataLoader with clean CIFAR-10 test set followed by corrupted CIFAR-10-C samples.
@@ -133,14 +139,15 @@ def load_clean_then_corrupt_sequence(
     """
     # Load clean test set
     clean_ds = torchvision.datasets.CIFAR10(
-        root=data_dir, train=False, download=True,
-        transform=torchvision.transforms.ToTensor()
+        root=data_dir, train=False, download=True, transform=torchvision.transforms.ToTensor()
     )
     clean_x = torch.stack([img for img, _ in clean_ds])[:n_examples]
     clean_y = torch.tensor([label for _, label in clean_ds])[:n_examples]
 
     # Load corrupted samples
-    corrupt_x, corrupt_y = load_cifar10c(n_examples, severity, corruption, data_dir=os.path.join(data_dir, 'CIFAR-10-C'))
+    corrupt_x, corrupt_y = load_cifar10c(
+        n_examples, severity, corruption, data_dir=os.path.join(data_dir, "CIFAR-10-C")
+    )
 
     # Combine
     all_x = torch.cat([clean_x, corrupt_x], dim=0)
@@ -157,9 +164,7 @@ def load_clean_then_corrupt_sequence(
 
 
 def compute_detection_delays_from_threshold(
-    log_sj_dict: Dict[str, List[float]],
-    threshold: float = np.log(100),
-    start_index: int = 4000
+    log_sj_dict: Dict[str, List[float]], threshold: float = np.log(100), start_index: int = 4000
 ) -> Dict[str, int]:
     """
     Compute number of samples after corruption onset (start_index) until log(Sj) crosses threshold.
@@ -189,11 +194,11 @@ def compute_detection_delays_from_threshold(
 def compute_accuracy_drops(accuracies_dict, split_index=62):  # 4000/64 ≈ 62 batches
     """
     Compute accuracy drops between clean and corrupted data.
-    
+
     Args:
         accuracies_dict: Dictionary containing batch-wise accuracies
         split_index: Batch index where corruption starts (4000/batch_size)
-    
+
     Returns:
         Dictionary of accuracy drops for each corruption type
     """
@@ -206,5 +211,51 @@ def compute_accuracy_drops(accuracies_dict, split_index=62):  # 4000/64 ≈ 62 b
             acc_after = np.mean(accs[split_index:])
             drop = acc_before - acc_after
             accuracy_drops[corruption] = drop
-    
+
     return accuracy_drops
+
+
+def compute_entropy_spikes(entropy_streams: Dict[str, np.ndarray]):
+    """
+    Compute entropy spikes for each corruption type.
+
+    Returns:
+        Dictionary of entropy spikes for each corruption type
+    """
+    spikes = {}
+    for key, ents in entropy_streams.items():
+        ents = np.array(ents)
+        spike = np.max(ents) - np.min(ents)
+        spikes[key] = spike
+
+    return spikes
+
+
+def compute_detection_confidence_slope(
+    log_sj_dict: Dict[str, List[float]], eps_dict: Dict[str, List[float]], start_index: int = 4000
+) -> Dict[str, float]:
+    """
+    Compute the slope of the confidence curve for each corruption type.
+
+    Parameters:
+        log_sj_dict (Dict[str, List[float]]): Dictionary of log(Sj) values for each corruption/severity.
+        eps_dict (Dict[str, List[float]]): Dictionary of epsilon values for each corruption/severity.
+        start_index (int): Index at which corruption begins.
+
+    Returns:
+        Dict[str, float]: Slopes for each key.
+    """
+    slopes = {}
+    for key in log_sj_dict.keys():
+        log_sj = np.array(log_sj_dict[key])
+        eps = np.array(eps_dict[key])
+        post_shift_log_sj = log_sj[start_index:]
+        post_shift_eps = eps[start_index:]
+
+        if len(post_shift_log_sj) > 1 and len(post_shift_eps) > 1:
+            slope = np.polyfit(post_shift_log_sj, post_shift_eps, 1)[0]
+            slopes[key] = slope
+        else:
+            slopes[key] = None  # Not enough data to compute slope
+
+    return slopes
