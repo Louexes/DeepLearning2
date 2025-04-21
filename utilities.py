@@ -1,4 +1,6 @@
 import os
+import random
+from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -259,3 +261,90 @@ def compute_detection_confidence_slope(
             slopes[key] = None  # Not enough data to compute slope
 
     return slopes
+
+
+def apply_label_noise_to_dataset(dataset, noise_rate=0.3, num_classes=10):
+    new_dataset = list(dataset)  
+    n = len(new_dataset)
+    num_noisy = int(noise_rate * n)
+    noisy_indices = np.random.choice(n, num_noisy, replace=False)
+
+    for idx in noisy_indices:
+        img, true_label = new_dataset[idx]
+        noisy_label = random.choice([i for i in range(num_classes) if i != true_label])
+        new_dataset[idx] = (img, noisy_label)
+
+    return new_dataset
+
+
+def simulate_prior_shift(dataset, class_priors, total_size=None):
+    """
+    dataset: list of (img, label) tuples
+    class_priors: dict like {0: 0.4, 1: 0.1, ..., 9: 0.05}
+    total_size: total number of samples in output (defaults to len(dataset))
+    """
+    by_class = defaultdict(list)
+    for x in dataset:
+        by_class[x[1]].append(x)
+
+    if total_size is None:
+        total_size = len(dataset)
+
+    shifted_dataset = []
+    for cls, prior in class_priors.items():
+        n_samples = int(total_size * prior)
+        class_samples = by_class[cls]
+        if len(class_samples) < n_samples:
+            # Oversample with replacement
+            sampled = random.choices(class_samples, k=n_samples)
+        else:
+            # Undersample without replacement
+            sampled = random.sample(class_samples, k=n_samples)
+        shifted_dataset.extend(sampled)
+
+    return shifted_dataset
+
+
+def simulate_prior_shift_with_label_noise(dataset, class_priors, noise_rate=0.3, num_classes=10, total_size=None):
+    """
+    Applies class prior shift followed by label noise.
+
+    Args:
+        dataset: list of (img, label) tuples
+        class_priors: dict like {0: 0.4, 1: 0.1, ..., 9: 0.05}
+        noise_rate: fraction of labels to flip
+        num_classes: number of possible classes
+        total_size: number of samples in output (default: len(dataset))
+
+    Returns:
+        shifted_dataset: list of (img, possibly noisy_label) tuples
+    """
+    # Step 1: Apply class prior shift
+    by_class = defaultdict(list)
+    for x in dataset:
+        by_class[x[1]].append(x)
+
+    if total_size is None:
+        total_size = len(dataset)
+
+    shifted_dataset = []
+    for cls, prior in class_priors.items():
+        n_samples = int(total_size * prior)
+        class_samples = by_class[cls]
+        if len(class_samples) < n_samples:
+            sampled = random.choices(class_samples, k=n_samples)
+        else:
+            sampled = random.sample(class_samples, k=n_samples)
+        shifted_dataset.extend(sampled)
+
+    # Step 2: Apply label noise
+    n = len(shifted_dataset)
+    num_noisy = int(noise_rate * n)
+    noisy_indices = np.random.choice(n, num_noisy, replace=False)
+
+    for i in noisy_indices:
+        img, true_label = shifted_dataset[i]
+        noisy_label = random.choice([c for c in range(num_classes) if c != true_label])
+        shifted_dataset[i] = (img, noisy_label)
+
+    return shifted_dataset
