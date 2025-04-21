@@ -264,7 +264,7 @@ def compute_detection_confidence_slope(
 
 
 def apply_label_noise_to_dataset(dataset, noise_rate=0.3, num_classes=10):
-    new_dataset = list(dataset)  
+    new_dataset = list(dataset)
     n = len(new_dataset)
     num_noisy = int(noise_rate * n)
     noisy_indices = np.random.choice(n, num_noisy, replace=False)
@@ -348,3 +348,49 @@ def simulate_prior_shift_with_label_noise(dataset, class_priors, noise_rate=0.3,
         shifted_dataset[i] = (img, noisy_label)
 
     return shifted_dataset
+
+
+def load_dynamic_sequence(
+    segments: list,
+    segment_size: int,
+    corruption_name: str,
+    data_dir: str = "./data",
+    transform=None,
+    batch_size: int = 64,
+) -> Tuple[DataLoader, np.ndarray, np.ndarray, list]:
+    base_clean_ds = torchvision.datasets.CIFAR10(
+        root=data_dir, train=False, download=True, transform=torchvision.transforms.ToTensor()
+    )
+    base_clean_list = list(base_clean_ds)
+
+    full_x, full_y, is_clean_mask, segment_labels = [], [], [], []
+
+    for seg in segments:
+        if seg == "clean":
+            segment = random.sample(base_clean_list, segment_size)
+            imgs = torch.stack([x[0] for x in segment])
+            labels = torch.tensor([x[1] for x in segment])
+
+        else:
+            severity = int(seg[1])  # e.g., from "s2" → 2
+            corrupt_x, corrupt_y = load_cifar10c(
+                segment_size, severity, corruption_name, data_dir=os.path.join(data_dir, "CIFAR-10-C")
+            )
+            imgs = corrupt_x
+            labels = corrupt_y
+
+        full_x.append(imgs)
+        full_y.append(labels)
+        is_clean_mask.extend([seg == "clean"] * segment_size)
+        segment_labels.extend([seg] * segment_size)
+
+    all_x = torch.cat(full_x, dim=0)
+    all_y = torch.cat(full_y, dim=0)
+
+    if transform:
+        dataset = BasicDataset(all_x, all_y, transform=transform)
+    else:
+        dataset = BasicDataset(all_x, all_y)
+
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    return loader, np.array(is_clean_mask), all_y.numpy(), np.array(segment_labels)
