@@ -13,7 +13,7 @@ class Tent_ext(nn.Module):
     Once tented, a model adapts itself by updating on every forward.
     """
 
-    def __init__(self, model, optimizer, protector, steps=1, episodic=False):
+    def __init__(self, model, optimizer, protector, steps=1, episodic=False, slope_threshold=0.01):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
@@ -25,7 +25,7 @@ class Tent_ext(nn.Module):
         # TODO: Make sure the model setup works correctly with the protector
         self.protector = protector
         # Threshold value for adaptation based on martingale slope
-        self.slope_threshold = 0.01
+        self.slope_threshold = slope_threshold
 
     # Forward pass structured like POEM
     def forward(self, x):
@@ -41,12 +41,13 @@ class Tent_ext(nn.Module):
             protected_ents, protection_info = self.protector.protect(ents)
 
         # 2. Compute slope of martingale process
-        slope = self.martingale_slope(protected_ents, self.protector)
-
+        slope = self.martingale_slope(protected_ents)
+        #print(f"Slope: {slope:.4f}")	
         # TODO: May need to insert logic for delayed start? See POEM class.
 
         # 3. Decide to adapt or not based on slope
-        if slope >= self.slope_threshold:
+        if np.abs(slope) >= self.slope_threshold:
+            #print(f"Adapting on slope: {slope:.4f}")
             for _ in range(self.steps):
                 outputs = forward_and_adapt(x, self.model, self.optimizer)
             if self.episodic:
@@ -60,7 +61,9 @@ class Tent_ext(nn.Module):
         self.protector.reset()
         logs = list()
         for z in entropies:
-            u = self.protector.cdf(z)
+            # Move tensor to CPU before using with numpy
+            z_cpu = z.cpu() if isinstance(z, torch.Tensor) else z
+            u = self.protector.cdf(z_cpu)
             self.protector.protect_u(u)
             # TODO: Log Sj or Sj?
             logs.append(self.protector.martingales[-1] + 1e-8)
