@@ -239,6 +239,7 @@ def run(data_loader, model, args):
     logits_list = []
     labels_list = []
 
+    # NOTE: This is where the metrics are printed. Maybe add something here to continuously show Extension behaviour.
     batch_time = AverageMeter("Time", ":6.3f")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
@@ -438,9 +439,11 @@ def run_comparison(test_loader, holdout_loader, holdout_dataset, args):
         },
     ]
 
-    args.timestamp = time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime())
+    args.timestamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     args.exp_name = args.timestamp + "seed{}".format(args.seed) + "_" + str(uuid.uuid4())[:6]
-    output_path = Path(args.output) / args.dataset / "cont_long" / args.exp_name
+    output_path = (
+        Path(args.output) / args.dataset / "cont_long" / f"{args.timestamp}seed{args.seed}_{str(uuid.uuid4())[:6]}"
+    )
     output_path.parent.mkdir(exist_ok=True, parents=True)
 
     df = pd.DataFrame(data)
