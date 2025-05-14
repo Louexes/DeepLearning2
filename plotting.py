@@ -30,6 +30,90 @@ def plot_detection_delays(delays_dict):
     plt.tight_layout()
     plt.show()
 
+def plot_combined_martingale_accuracy_severity_pbrs(
+    log_sj_dict: Dict[str, List[float]],
+    epsilons_dict: Dict[str, List[float]],
+    accuracies_dict: Dict[str, List[float]],
+    entropy_dict: Dict[str, List[float]],
+    batch_size: int,
+    buffer_size: int,
+    title: str = "Martingale (PBRS), Accuracy, and Entropy Over Time",
+):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fig, axs = plt.subplots(4, 1, figsize=(12, 12), sharex=False)
+
+    shift_start = 3500
+    shift_end = 5500
+    axs[2].set_xlim(shift_start, shift_end)
+    axs[3].set_xlim(shift_start, shift_end)
+
+    for severity in sorted(log_sj_dict.keys()):
+        print(f"Plotting severity {severity}")
+
+        log_sj = np.array(log_sj_dict[severity])
+        epsilons = np.array(epsilons_dict[severity])
+        accuracies = np.array(accuracies_dict[severity])
+        entropy = np.array(entropy_dict[severity])
+
+        # X-axes
+        log_steps = np.arange(len(log_sj))           # for log(Sj)
+        acc_steps = np.arange(0, len(entropy), batch_size)[:len(accuracies)]
+        entropy_steps = np.arange(len(entropy))
+
+        print(f"len(entropy) = {len(entropy)}")
+        print(f"batch_size = {batch_size}")
+        print(f"acc_steps = {acc_steps.shape}, accuracies = {accuracies.shape}")
+
+        # Plot
+        axs[0].plot(log_steps, log_sj, label=f"Severity {severity}")
+        axs[1].plot(log_steps, epsilons, label=f"Severity {severity}")
+        axs[2].plot(acc_steps, accuracies, marker="o", linestyle="-", label=f"Severity {severity}")
+
+        # Smoothed entropy
+        smooth_entropy = np.convolve(entropy, np.ones(50) / 50, mode="valid")
+        smooth_steps = np.arange(len(smooth_entropy)) + 25
+        axs[3].plot(smooth_steps, smooth_entropy, label=f"Severity {severity}")
+
+    # Axis titles and settings
+    axs[0].axhline(np.log(100), linestyle="--", color="red", label="log(Sj)=log(100)")
+    axs[0].set_ylabel("log(Sj) [PBRS]")
+    axs[0].set_title(title)
+    axs[0].set_xlim(0, buffer_size)
+    axs[0].set_ylim(-5, 80)
+    axs[0].legend()
+    axs[0].grid(True)
+
+    axs[1].set_ylabel("Epsilon [PBRS]")
+    axs[1].set_xlim(0, buffer_size)
+    axs[1].legend()
+    axs[1].grid(True)
+
+    axs[2].set_ylabel("Accuracy")
+    axs[2].set_xlabel("Time step (samples)")
+    axs[2].legend()
+    axs[2].grid(True)
+
+    axs[3].set_ylabel("Entropy")
+    axs[3].set_xlabel("Time step (samples)")
+    axs[3].legend()
+    axs[3].grid(True)
+
+    # Mark distribution shift visually on accuracy/entropy axes
+    for ax in [axs[2], axs[3]]:
+        ax.axvline(4000, color="gray", linestyle="-", alpha=0.5)
+
+    # Legend below
+    handles, labels = axs[0].get_legend_handles_labels()
+    display_labels = [f"Severity {k.split('_s')[-1]}" for k in sorted(log_sj_dict.keys())]
+    filtered = list(zip(handles, display_labels))
+    handles, labels = zip(*filtered)
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), bbox_to_anchor=(0.5, -0.02))
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.show()
+
 
 def plot_combined_martingale_accuracy_severity(
     log_sj_dict: Dict[str, List[float]],
@@ -55,13 +139,15 @@ def plot_combined_martingale_accuracy_severity(
     fig, axs = plt.subplots(4, 1, figsize=(12, 12), sharex=True)
 
     shift_start = 3500
-    shift_end = 5000
+    shift_end = 5500
     axs[0].set_xlim(shift_start, shift_end)
     axs[1].set_xlim(shift_start, shift_end)
     axs[2].set_xlim(shift_start, shift_end)
     axs[3].set_xlim(shift_start, shift_end)
 
     for severity in sorted(log_sj_dict.keys()):
+        print(f"Plotting severity {severity}")
+
         log_sj = np.array(log_sj_dict[severity])
         epsilons = np.array(epsilons_dict[severity])
         accuracies = np.array(accuracies_dict[severity])
@@ -69,6 +155,9 @@ def plot_combined_martingale_accuracy_severity(
 
         steps = np.arange(len(log_sj))
         acc_steps = np.arange(0, len(log_sj), batch_size)[: len(accuracies)]
+        print(f"batch size: {batch_size}")
+        print(f"lengt Log Sj: {len(log_sj)}")
+        print(f"Length of Accuracies: {len(accuracies)}")
 
         axs[0].plot(steps, log_sj, label=f"Severity {severity}")
         axs[1].plot(steps, epsilons, label=f"Severity {severity}")

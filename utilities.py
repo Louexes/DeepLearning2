@@ -1,12 +1,14 @@
 import os
 import random
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Sequence
 
 import numpy as np
 import torch
 import torchvision
 from torch.utils.data import DataLoader, Dataset
+import pickle
+
 
 from temperature_scaling import ModelWithTemperature
 from tent import Tent, collect_params, configure_model
@@ -42,6 +44,88 @@ def load_cifar10c(
 
     x = np.transpose(x, (0, 3, 1, 2)).astype(np.float32) / 255.0
     return torch.tensor(x), torch.tensor(y)
+
+
+def load_cifar10_clean(
+    n_examples: int,
+    data_dir: str = "./data/cifar-10-batches-py"
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Loads clean CIFAR-10 test data (from 'test_batch') and returns tensors of shape (N, 3, 32, 32).
+    Equivalent to how load_cifar10c slices corrupted data.
+    """
+    # Path to test_batch
+    test_batch_path = os.path.join(data_dir, "test_batch")
+
+    # Load with pickle
+    with open(test_batch_path, 'rb') as f:
+        entry = pickle.load(f, encoding='bytes')
+        x = entry[b'data']
+        y = entry[b'labels']
+
+    # Reshape and normalize
+    x = x.reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+    y = np.array(y)
+
+    # Slice to n_examples
+    x = x[:n_examples]
+    y = y[:n_examples]
+
+    return torch.tensor(x), torch.tensor(y)
+
+
+
+def load_cifar10_label_shift(
+    keep_classes: Sequence[int] = (0, 1, 2),
+    n_examples: int = 8000,
+    shift_point: int = 4000,
+    data_dir: str = "./data/cifar-10-batches-py"
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Loads CIFAR-10 clean test data and introduces label shift after a given index.
+
+    Parameters:
+        keep_classes: Classes to retain after shift_point.
+        n_examples: Total number of examples to return.
+        shift_point: Index at which label shift begins.
+        data_dir: Path to unzipped 'cifar-10-batches-py' directory.
+
+    Returns:
+        Tuple of (x, y) as torch tensors with shape [N, 3, 32, 32] and [N]
+    """
+    # Load raw test batch
+    with open(os.path.join(data_dir, "test_batch"), "rb") as f:
+        entry = pickle.load(f, encoding="bytes")
+        x_all = entry[b"data"].reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+        y_all = np.array(entry[b"labels"])
+
+    # Balanced clean portion
+    x_clean = x_all[:shift_point]
+    y_clean = y_all[:shift_point]
+
+    # Label-shifted portion: only keep selected classes
+    mask = np.isin(y_all, keep_classes)
+    #x_shift = x_all[mask][:(n_examples - shift_point)]
+    #y_shift = y_all[mask][:(n_examples - shift_point)]
+
+    n_per_class = (n_examples - shift_point) // len(keep_classes)
+    x_shift, y_shift = sample_balanced_subset(x_all[mask], y_all[mask], keep_classes, n_per_class)
+
+    # Combine clean + shifted portions
+    x = np.concatenate([x_clean, x_shift])
+    y = np.concatenate([y_clean, y_shift])
+
+    return torch.tensor(x), torch.tensor(y)
+
+
+def sample_balanced_subset(x, y, classes, n_per_class):
+    indices = []
+    for cls in classes:
+        cls_indices = np.where(y == cls)[0]
+        np.random.shuffle(cls_indices)
+        indices.extend(cls_indices[:n_per_class])
+    return x[indices], y[indices]
+
 
 
 def get_model(method: str, device: str):
@@ -163,6 +247,55 @@ def load_clean_then_corrupt_sequence(
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     return loader, is_clean, all_y.numpy()
+
+
+
+def load_clean_then_label_shift_sequence(
+    keep_classes: list,
+    n_examples: int,
+    shift_point: int = 4000,
+    data_dir: str = "./data/cifar-10-batches-py",
+    transform=None,
+    batch_size: int = 64
+):
+    """
+    Loads a dataset where the first part is clean and the second part is label-shifted.
+
+    Parameters:
+        keep_classes: List of class labels to retain after shift point.
+        n_examples: Total number of examples.
+        shift_point: Index at which label shift occurs.
+        data_dir: Path to unzipped cifar-10-batches-py directory.
+        transform: Normalization or transform function.
+        batch_size: Batch size for the DataLoader.
+
+    Returns:
+        loader, is_clean_mask, true_labels
+    """
+    with open(os.path.join(data_dir, "test_batch"), "rb") as f:
+        entry = pickle.load(f, encoding="bytes")
+        x_all = entry[b"data"].reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+        y_all = np.array(entry[b"labels"])
+
+    x_clean = x_all[:shift_point]
+    y_clean = y_all[:shift_point]
+
+    mask = np.isin(y_all, keep_classes)
+    x_shift = x_all[mask][:(n_examples - shift_point)]
+    y_shift = y_all[mask][:(n_examples - shift_point)]
+
+    x_combined = np.concatenate([x_clean, x_shift])
+    y_combined = np.concatenate([y_clean, y_shift])
+
+    x_tensor = torch.tensor(x_combined)
+    y_tensor = torch.tensor(y_combined)
+
+    dataset = BasicDataset(x_tensor, y_tensor, transform=transform)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    is_clean = np.array([1] * shift_point + [0] * (n_examples - shift_point))
+
+    return loader, is_clean, y_combined
+
 
 
 def compute_detection_delays_from_threshold(

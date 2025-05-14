@@ -8,6 +8,9 @@ from loguru import logger
 
 import copy
 from cdf import CDF
+from collections import defaultdict
+import random
+from weighted_cdf import WeightedCDF
 # from exp_utils.utils import get_ents_acc
 
 
@@ -119,7 +122,7 @@ class Protector:
         else:
             eps_new = eps_t
 
-        print(f"Grad = {grad_t:.6f}, New eps = {eps_new:.6f}") # added by Louis for debugging
+        #print(f"Grad = {grad_t:.6f}, New eps = {eps_new:.6f}") # added by Louis for debugging
 
         return eps_new
 
@@ -140,7 +143,7 @@ class Protector:
         self.martingales.append(self.C)
         self.epsilons.append(float(eps_new))
 
-        print(f"u_t = {u_t:.4f}, eps = {eps_t:.4f}, b = {b:.4f}, S = {self.C:.4f}") # added by Louis for debugging
+        #print(f"u_t = {u_t:.4f}, eps = {eps_t:.4f}, b = {b:.4f}, S = {self.C:.4f}") # added by Louis for debugging
 
         return u_protected
 
@@ -157,3 +160,66 @@ def get_protector_from_ents(ents, args):
     protector.set_eps_clip_val(eps_clip_val)
     return protector
 
+def get_weighted_protector_from_ents(source_ents, source_pseudo_labels, p_s, p_t, args):
+    """
+    Returns a Protector using an importance-weighted source CDF.
+    - source_ents: entropy values from clean CIFAR-10
+    - source_pseudo_labels: pseudo-labels for the same samples
+    - p_s: source label distribution (as a NumPy array or tensor)
+    - p_t: estimated test label distribution
+    - args: namespace with gamma, eps_clip, device
+    """
+    weighted_cdf = WeightedCDF(
+        entropies=source_ents,
+        pseudo_labels=source_pseudo_labels,
+        p_s=p_s.numpy() if isinstance(p_s, torch.Tensor) else p_s,
+        p_t=p_t.numpy() if isinstance(p_t, torch.Tensor) else p_t
+    )
+
+    protector = Protector(cdf=weighted_cdf, device=args.device)
+    protector.set_gamma(args.gamma)
+    protector.set_eps_clip_val(args.eps_clip)
+    return protector
+
+
+
+## NEW ADDED PBRS BUFFER CLASS ##
+
+
+from collections import defaultdict
+
+class PBRSBuffer:
+    def __init__(self, capacity=64, num_classes=10):
+        self.capacity = capacity
+        self.num_classes = num_classes
+        self.target_per_class = capacity // num_classes
+        self.buffer = []  # stores (step_idx, entropy, y_hat)
+        self.label_counts = defaultdict(int)
+
+    def accept(self, y_hat):
+        """Only accept if class is underrepresented and buffer isn't full"""
+        if self.label_counts[y_hat] < self.target_per_class:
+            return True
+        return False  # Reject if class quota met
+
+    def add(self, step_idx, entropy, y_hat):
+        """Add new sample and evict oldest if buffer is full (FIFO)"""
+        if len(self.buffer) >= self.capacity:
+            removed = self.buffer.pop(0)
+            self.label_counts[removed[2]] -= 1
+
+        self.buffer.append((step_idx, entropy, y_hat))
+        self.label_counts[y_hat] += 1
+
+    def full(self):
+        return len(self.buffer) >= self.capacity
+
+    def get_entropies(self):
+        return [entry[1] for entry in self.buffer]
+
+    def get_indexed_entropies(self):
+        return [(entry[0], entry[1]) for entry in self.buffer]
+
+    def reset(self):
+        self.buffer = []
+        self.label_counts = defaultdict(int)
