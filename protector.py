@@ -11,6 +11,7 @@ from cdf import CDF
 from collections import defaultdict
 import random
 from weighted_cdf import WeightedCDF
+from weighted_cdf_bbse import BBSEWeightedCDF, estimate_shift_weights
 # from exp_utils.utils import get_ents_acc
 
 
@@ -174,6 +175,20 @@ def get_weighted_protector_from_ents(source_ents, source_pseudo_labels, p_s, p_t
         pseudo_labels=source_pseudo_labels,
         p_s=p_s.numpy() if isinstance(p_s, torch.Tensor) else p_s,
         p_t=p_t.numpy() if isinstance(p_t, torch.Tensor) else p_t
+    )
+
+    protector = Protector(cdf=weighted_cdf, device=args.device)
+    protector.set_gamma(args.gamma)
+    protector.set_eps_clip_val(args.eps_clip)
+    return protector
+
+
+def get_bbse_weighted_protector_from_ents(source_ents, pseudo_labels, weights, args):
+
+    weighted_cdf = BBSEWeightedCDF(
+        entropies=source_ents,
+        pseudo_labels=pseudo_labels,
+        weights=weights,
     )
 
     protector = Protector(cdf=weighted_cdf, device=args.device)
