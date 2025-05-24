@@ -8,6 +8,7 @@ import torch
 import torchvision
 from torch.utils.data import DataLoader, Dataset
 import pickle
+from tqdm import tqdm
 
 
 from temperature_scaling import ModelWithTemperature
@@ -74,11 +75,101 @@ def load_cifar10_clean(
     return torch.tensor(x), torch.tensor(y)
 
 
+import os, pickle
+from typing import Sequence, Tuple, Optional
+
+import numpy as np
+import torch
+
+
+# --------------------------------------------------------------------
+# utilities.py
+# --------------------------------------------------------------------
+# ---------------- utilities.py -------------------------------------------
+import numpy as np
+from typing import Sequence, Tuple
+
+def sample_balanced_subset(
+        x        : np.ndarray,
+        y        : np.ndarray,
+        classes  : Sequence[int],
+        n_per_class: int,
+        *,
+        rng: np.random.Generator | None = None,   # <-- NEW (optional)
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Return exactly `n_per_class` samples per class (WITH replacement).
+
+    • If `rng` is None a fresh generator is created.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    idx = []
+    for c in classes:
+        pool = np.where(y == c)[0]
+        idx.extend(rng.choice(pool, n_per_class, replace=True))
+
+    rng.shuffle(idx)
+    return x[idx], y[idx]
+
+
+# ---------- 2. dataset constructor with label-shift ---------------------
+def load_cifar10_label_shift1(
+        keep_classes : Sequence[int] = (0, 1, 2),
+        n_examples   : int           = 4000,
+        shift_point  : int           = 2000,
+        data_dir     : str           = "./data/cifar-10-batches-py",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Build a stream of `n_examples` images where the **first**
+    `shift_point` are clean CIFAR-10 test samples and the **tail**
+    exhibits pure label shift over `keep_classes` (sampling *with*
+    replacement so the tail can be arbitrarily long).
+    """
+    # ------------------------------------------------------ raw CIFAR-10
+    with open(os.path.join(data_dir, "test_batch"), "rb") as f:
+        entry  = pickle.load(f, encoding="bytes")
+        x_all  = entry[b"data"].reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+        y_all  = np.array(entry[b"labels"])
+
+    if shift_point > len(x_all):
+        raise ValueError("`shift_point` exceeds CIFAR-10 test-set size (10 000)")
+
+    # ------------------------------------------------------ clean prefix
+    x_clean, y_clean = x_all[:shift_point], y_all[:shift_point]
+
+    # ------------------------------------------------------ label-shift tail
+    mask           = np.isin(y_all, keep_classes)
+    x_pool, y_pool = x_all[mask], y_all[mask]
+
+    rng            = np.random.default_rng()
+    n_tail         = n_examples - shift_point
+    n_per_class    = n_tail // len(keep_classes)
+
+    # balanced sampling (ALWAYS with replacement)
+    x_shift, y_shift = sample_balanced_subset(
+        x_pool, y_pool, keep_classes, n_per_class
+    )
+
+    # pad if integer division left a shortfall
+    while x_shift.shape[0] < n_tail:
+        extra_x, extra_y = sample_balanced_subset(
+            x_pool, y_pool, keep_classes, 1
+        )
+        x_shift = np.concatenate([x_shift, extra_x])
+        y_shift = np.concatenate([y_shift, extra_y])
+
+    # ------------------------------------------------------ concat & return
+    x = np.concatenate([x_clean, x_shift])
+    y = np.concatenate([y_clean, y_shift])
+
+    return torch.tensor(x), torch.tensor(y)
 
 def load_cifar10_label_shift(
     keep_classes: Sequence[int] = (0, 1, 2),
-    n_examples: int = 8000,
-    shift_point: int = 4000,
+    n_examples: int = 4000,
+    shift_point: int = 2000,
     data_dir: str = "./data/cifar-10-batches-py"
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -128,15 +219,9 @@ def sample_balanced_subset(x, y, classes, n_per_class):
 
 
 
-def get_model(method: str, device: str):
+def get_model(device: str):
     model = torch.hub.load("chenyaofo/pytorch-cifar-models", "cifar10_resnet32", pretrained=True)
     model = ModelWithTemperature(model, 1.8).to(device)
-
-    if method == "tent":
-        model = configure_model(model)
-        params, _ = collect_params(model)
-        optimizer = torch.optim.SGD(params, lr=1e-3, momentum=0.9)
-        model = Tent(model, optimizer)
     return model.eval()
 
 
@@ -171,6 +256,25 @@ def run_martingale(entropy_streams: Dict[str, np.ndarray], protector) -> Dict[st
             eps.append(protector.epsilons[-1])
         results[name] = {"log_sj": logs, "eps": eps}
     return results
+
+
+def martingale_step(z: float, protector) -> float:
+    """
+    Push a single entropy value `z` through the protector and
+    return log-martingale wealth *after* the update.
+
+    Parameters
+    ----------
+    z          : float                     # entropy value
+    protector  : protect.Protector object # has .cdf(), .protect_u(), .martingales
+
+    Returns
+    -------
+    float  --  log S_j  (i.e.  log(martingales[-1] + ε) )
+    """
+    u = protector.cdf(z)              # → [0,1]
+    protector.protect_u(u)            # betting step
+    return np.log(protector.martingales[-1] + 1e-8)
 
 
 def compute_accuracy_over_time_from_logits(logits_list, labels_list):
@@ -211,6 +315,21 @@ def collect_method_comparison_results(method_names, raw_logs):
     return results
 
 
+import os
+import sys
+import contextlib
+
+@contextlib.contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+
+
 def load_clean_then_corrupt_sequence(
     corruption: str,
     severity: int,
@@ -224,6 +343,10 @@ def load_clean_then_corrupt_sequence(
     Returns the DataLoader, and a boolean mask (is_clean), and labels.
     """
     # Load clean test set
+    with suppress_stdout():
+        torchvision.datasets.CIFAR10(
+            root=data_dir, train=False, download=True, transform=torchvision.transforms.ToTensor()
+        )
     clean_ds = torchvision.datasets.CIFAR10(
         root=data_dir, train=False, download=True, transform=torchvision.transforms.ToTensor()
     )
@@ -253,7 +376,7 @@ def load_clean_then_corrupt_sequence(
 def load_clean_then_label_shift_sequence(
     keep_classes: list,
     n_examples: int,
-    shift_point: int = 4000,
+    shift_point: int = 2000,
     data_dir: str = "./data/cifar-10-batches-py",
     transform=None,
     batch_size: int = 64
@@ -326,13 +449,13 @@ def compute_detection_delays_from_threshold(
     return detection_delays
 
 
-def compute_accuracy_drops(accuracies_dict, split_index=62):  # 4000/64 ≈ 62 batches
+def compute_accuracy_drops(accuracies_dict, split_index=31):  # 4000/64 ≈ 62 batches, 2000/32 ≈ 31 batches
     """
     Compute accuracy drops between clean and corrupted data.
 
     Args:
         accuracies_dict: Dictionary containing batch-wise accuracies
-        split_index: Batch index where corruption starts (4000/batch_size)
+        split_index: Batch index where corruption starts (2000/batch_size)
 
     Returns:
         Dictionary of accuracy drops for each corruption type
@@ -367,7 +490,7 @@ def compute_entropy_spikes(entropy_streams: Dict[str, np.ndarray]):
 
 
 def compute_detection_confidence_slope(
-    log_sj_dict: Dict[str, List[float]], eps_dict: Dict[str, List[float]], start_index: int = 4000
+    log_sj_dict: Dict[str, List[float]], eps_dict: Dict[str, List[float]], start_index: int = 2000
 ) -> Dict[str, float]:
     """
     Compute the slope of the confidence curve for each corruption type.
@@ -527,3 +650,5 @@ def load_dynamic_sequence(
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     return loader, np.array(is_clean_mask), all_y.numpy(), np.array(segment_labels)
+
+

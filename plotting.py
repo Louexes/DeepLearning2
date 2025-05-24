@@ -522,3 +522,83 @@ def plot_dynamic_stream_analysis(
 
     # Show the plot
     plt.show()
+
+
+# plotting.py
+# ────────────────────────────────────────────────────────────────────────────
+import numpy as np, matplotlib.pyplot as plt
+from collections import defaultdict
+from itertools import groupby
+
+def plot_tpr_comparison(tpr_results, save_path="tpr_comparison.png"):
+    """
+    tpr_results: { method : { (corruption, severity) : stats_dict } }
+    Each stats_dict must contain key 'detection_rate'.
+
+    A single bar cluster per corruption-type, one bar per method.
+    If several severities exist we average the detection-rates.
+    """
+
+    # ░░░ Organise data ░░░----------------------------------------------------
+    # find all corruption names
+    corr_names = sorted({corr for m in tpr_results.values()
+                               for (corr, _) in m.keys()})
+    methods    = list(tpr_results.keys())
+
+    # table[method][corr] = mean-TPR
+    table = defaultdict(dict)
+    for m, m_res in tpr_results.items():
+        # group by corruption
+        m_res_sorted = sorted(m_res.items(), key=lambda kv: kv[0][0])  # sort by corr name
+        for corr, grp in groupby(m_res_sorted, key=lambda kv: kv[0][0]):
+            vals = [v["detection_rate"] for (_, _), v in grp]
+            table[m][corr] = float(np.mean(vals))      # collapse severities
+
+    # ░░░ Draw ░░░-------------------------------------------------------------
+    n_corr  = len(corr_names)
+    n_meth  = len(methods)
+    width   = 0.8 / n_meth
+    x_base  = np.arange(n_corr)
+
+    plt.figure(figsize=(1.8*n_corr, 4.5))
+
+    for j, m in enumerate(methods):
+        y = [table[m].get(c, 0.0) for c in corr_names]
+        plt.bar(x_base + j*width, y, width, label=m)
+
+    plt.xticks(x_base + width*(n_meth-1)/2, corr_names, rotation=45, ha="right")
+    plt.xlabel("Corruption")
+    plt.ylabel("Mean detection-rate (TPR)")
+    plt.ylim(0, 1.05)
+    plt.title("Covariate-shift TPR comparison")
+    plt.legend(frameon=False, ncol=min(len(methods),4))
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+"""
+def plot_tpr_comparison(results, save_path='tpr_comparison.png'):
+Plot TPR comparison across different methods and corruption types.
+    plt.figure(figsize=(12, 6))
+    
+    # Prepare data for plotting
+    corruption_types = list(results.keys())
+    methods = list(results[corruption_types[0]].keys())
+    x = np.arange(len(corruption_types))
+    width = 0.8 / len(methods)
+    
+    # Plot bars for each method
+    for i, method in enumerate(methods):
+        tpr_values = [np.mean([results[corr][method]['detection_rate'] for corr in corruption_types])]
+        plt.bar(x + i*width, tpr_values, width, label=method)
+    
+    plt.xlabel('Corruption Types')
+    plt.ylabel('True Positive Rate (TPR)')
+    plt.title('TPR Comparison Across Methods')
+    plt.xticks(x + width/2, corruption_types, rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+"""
+    
