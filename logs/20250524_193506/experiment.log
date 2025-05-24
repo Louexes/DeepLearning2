@@ -1,0 +1,47 @@
+2025-05-24 19:35:06,703 - INFO - Starting experiments with configuration:
+2025-05-24 19:35:06,704 - INFO - {
+    "method": "w-bbseods",
+    "batch_size": 64,
+    "device": "cuda",
+    "buffer_capacity": 512,
+    "confidence_threshold": 0.5,
+    "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "number_classes": [
+        1
+    ],
+    "corruptions": [
+        "shot_noise"
+    ],
+    "severities": [
+        1,
+        2,
+        3,
+        4,
+        5
+    ]
+}
+2025-05-24 19:35:06,704 - INFO - Loading model …
+2025-05-24 19:35:07,522 - INFO - Computing source entropies …
+2025-05-24 19:35:08,220 - INFO - FPR eval (w-bbseods) …
+2025-05-24 19:40:38,717 - INFO - TPR eval (w-bbseods) …
+2025-05-24 19:51:16,619 - INFO - 
+ Summary of FPR Results:
+2025-05-24 19:51:16,620 - INFO - 
+W-BBSEODS Results:
+2025-05-24 19:51:16,622 - INFO - 1 classes: FPR = 0.100 ± 0.000
+2025-05-24 19:51:16,622 - INFO - 
+ Summary of TPR Results:
+2025-05-24 19:51:16,623 - INFO - 
+W-BBSEODS Results:
+2025-05-24 19:51:16,623 - INFO - ('shot_noise', 1): TPR = 1.000, Avg Delay = 305.0
+2025-05-24 19:51:16,624 - INFO - ('shot_noise', 2): TPR = 1.000, Avg Delay = 218.0
+2025-05-24 19:51:16,624 - INFO - ('shot_noise', 3): TPR = 1.000, Avg Delay = 208.0
+2025-05-24 19:51:16,624 - INFO - ('shot_noise', 4): TPR = 1.000, Avg Delay = 199.0
+2025-05-24 19:51:16,625 - INFO - ('shot_noise', 5): TPR = 1.000, Avg Delay = 191.0
+2025-05-24 19:51:16,993 - INFO - Finished - plot saved to logs\20250524_193506\w-bbseods_tpr_plot.png

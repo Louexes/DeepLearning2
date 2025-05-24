@@ -1,0 +1,27 @@
+{
+    "method": "w-bbseods",
+    "batch_size": 64,
+    "device": "cuda",
+    "buffer_capacity": 512,
+    "confidence_threshold": 0.5,
+    "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "number_classes": [
+        1
+    ],
+    "corruptions": [
+        "shot_noise"
+    ],
+    "severities": [
+        1,
+        2,
+        3,
+        4,
+        5
+    ]
+}

@@ -1,0 +1,92 @@
+{
+    "shot_noise_s1": {
+        "detection_rate": 1.0,
+        "avg_delay": 305.0,
+        "raw_detections": [
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "raw_delays": [
+            305.0,
+            305.0,
+            305.0,
+            305.0,
+            305.0
+        ]
+    },
+    "shot_noise_s2": {
+        "detection_rate": 1.0,
+        "avg_delay": 218.0,
+        "raw_detections": [
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "raw_delays": [
+            218.0,
+            218.0,
+            218.0,
+            218.0,
+            218.0
+        ]
+    },
+    "shot_noise_s3": {
+        "detection_rate": 1.0,
+        "avg_delay": 208.0,
+        "raw_detections": [
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "raw_delays": [
+            208.0,
+            208.0,
+            208.0,
+            208.0,
+            208.0
+        ]
+    },
+    "shot_noise_s4": {
+        "detection_rate": 1.0,
+        "avg_delay": 199.0,
+        "raw_detections": [
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "raw_delays": [
+            199.0,
+            199.0,
+            199.0,
+            199.0,
+            199.0
+        ]
+    },
+    "shot_noise_s5": {
+        "detection_rate": 1.0,
+        "avg_delay": 191.0,
+        "raw_detections": [
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "raw_delays": [
+            191.0,
+            191.0,
+            191.0,
+            191.0,
+            191.0
+        ]
+    }
+}
